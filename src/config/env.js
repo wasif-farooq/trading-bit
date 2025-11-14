@@ -46,6 +46,11 @@ module.exports = {
 		takeProfit: getNumber(process.env.DEFAULT_TAKE_PROFIT, 0),
 		volume: getNumber(process.env.DEFAULT_VOLUME, 0.1)
 	},
+	simulation: {
+		host: process.env.SIMULATION_HOST || '127.0.0.1',
+		port: getNumber(process.env.SIMULATION_PORT, 8081),
+		url: process.env.SIMULATION_URL || null // If set, overrides host:port
+	},
 	logLevel: process.env.LOG_LEVEL || 'info'
 };
 

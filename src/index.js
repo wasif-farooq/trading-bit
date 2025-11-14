@@ -43,12 +43,19 @@ async function main() {
 			});
 			break;
 		case 'manual':
+			const simulationUrl = CONFIG.simulation.url;
 			dataSource = new ManualDataSource({
 				symbol,
 				initialPrice: 50000,
 				volatility: 100,
-				intervalMs: 1000
+				intervalMs: 1000,
+				simulationServerUrl: simulationUrl || null
 			});
+			if (simulationUrl) {
+				logger.info(`Using simulation server: ${simulationUrl}`);
+			} else {
+				logger.info('Using random data generation (no simulation server configured)');
+			}
 			break;
 		default:
 			logger.warn(`Unknown mode "${modeArg}". Defaulting to MQL.`);

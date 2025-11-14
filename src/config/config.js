@@ -35,7 +35,12 @@ const CONFIG = {
 	defaultStopLoss: env.defaults.stopLoss,
 	defaultTakeProfit: env.defaults.takeProfit,
 	defaultVolume: env.defaults.volume,
-	port: env.port
+	port: env.port,
+	simulation: {
+		host: env.simulation.host,
+		port: env.simulation.port,
+		url: env.simulation.url || `ws://${env.simulation.host}:${env.simulation.port}`
+	}
 };
 
 module.exports = { CONFIG };

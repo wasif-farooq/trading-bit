@@ -23,6 +23,32 @@ services:
       timeout: 5s
       retries: 5
 
+  simulation:
+    build:
+      context: .
+      dockerfile: simulation/Dockerfile
+    container_name: exness-simulation-server
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - SIMULATION_PORT=${SIMULATION_PORT:-8081}
+      - CSV_FILE_PATH=${CSV_FILE_PATH:-/app/data/ticks.csv}
+      - PLAYBACK_SPEED=${PLAYBACK_SPEED:-1.0}
+      - FIXED_INTERVAL=${FIXED_INTERVAL:-}
+    ports:
+      - "${SIMULATION_PORT:-8081}:8081"
+    networks:
+      - trading-network
+    volumes:
+      - ./simulation/data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8081/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   app:
     build:
       context: .
@@ -36,10 +62,15 @@ services:
       - SYMBOL=${SYMBOL:-XAUUSD}
       - OUTPUT_DIR=${OUTPUT_DIR:-./live_analysis_output}
       - DATA_SOURCE=${DATA_SOURCE:-mql}
+      - SIMULATION_HOST=${SIMULATION_HOST:-simulation}
+      - SIMULATION_PORT=${SIMULATION_PORT:-8081}
+      - SIMULATION_URL=${SIMULATION_URL:-ws://simulation:8081}
     ports:
       - "${PORT:-8080}:8080"
     depends_on:
       aerospike:
+        condition: service_healthy
+      simulation:
         condition: service_healthy
     networks:
       - trading-network
