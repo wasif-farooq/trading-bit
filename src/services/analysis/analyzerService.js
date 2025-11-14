@@ -152,23 +152,24 @@ class AnalyzerService extends EventEmitter {
 
 			this.multiAnalyzer = new MultiTimeframeAnalyzer();
 
-			const timeframes = ['1m', '3m', '5m'];
+			const timeframes = [
+				{ label: '15s', seconds: 15 },
+				{ label: '1m', seconds: 60 },
+				{ label: '3m', seconds: 180 },
+				{ label: '5m', seconds: 300 }
+			];
 
-			for (const timeframe of timeframes) {
-				logger.debug(`Analyzing ${timeframe} timeframe...`);
+			for (const { label, seconds } of timeframes) {
+				logger.debug(`Analyzing ${label} timeframe...`);
 
-				let aggregatedData;
-				if (timeframe === '1m') {
-					aggregatedData = this.aggregateToTimeframe(allCandles, 60);
-				} else if (timeframe === '3m') {
-					aggregatedData = this.aggregateToTimeframe(allCandles, 180);
-				} else if (timeframe === '5m') {
-					aggregatedData = this.aggregateToTimeframe(allCandles, 300);
-				} else {
+				const aggregatedData = this.aggregateToTimeframe(allCandles, seconds);
+
+				if (!aggregatedData || aggregatedData.length === 0) {
+					logger.debug(`Skipping ${label} timeframe due to insufficient candles`);
 					continue;
 				}
 
-				const analyzer = new SwingAnalyzer(timeframe);
+				const analyzer = new SwingAnalyzer(label);
 				aggregatedData.forEach(bar => {
 					analyzer.addPriceData(bar.timestamp, bar.open, bar.high, bar.low, bar.close, bar.volume, bar.originalTimestamp);
 				});
