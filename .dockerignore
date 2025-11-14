@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.env
+.env.local
+*.log
+data/
+live_analysis_output/
+logs/
+.git
+.gitignore
+README.md
+docker-compose.yml
+aerospike.conf
+

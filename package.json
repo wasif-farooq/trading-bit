@@ -1,0 +1,22 @@
+{
+  "name": "exness-mt5-trading-bot",
+  "version": "0.1.0",
+  "description": "Real-time trading analyzer integrating MT5 MQL socket streams with Node.js analytics and execution.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "debug:candles": "node scripts/debug-candles.js"
+  },
+  "dependencies": {
+    "aerospike": "^5.1.0",
+    "csv-parser": "^3.0.0",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^4.7.1",
+    "ws": "^8.18.0"
+  }
+}
+

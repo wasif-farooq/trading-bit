@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  aerospike:
+    image: aerospike/aerospike-server:latest
+    container_name: exness-aerospike
+    ports:
+      - "3000:3000"  # Client port
+      - "3001:3001"   # Fabric port
+      - "3002:3002"   # Heartbeat port
+      - "3003:3003"   # Info port
+    volumes:
+      - aerospike-data:/opt/aerospike/data
+      - aerospike-logs:/opt/aerospike/logs
+      - ./aerospike.conf:/etc/aerospike/aerospike.conf:ro
+    command: |
+      /entrypoint.sh asd --config-file /etc/aerospike/aerospike.conf
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "asinfo", "-v", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: exness-trading-bot
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - AEROSPIKE_HOST=aerospike
+      - SYMBOL=${SYMBOL:-XAUUSD}
+      - OUTPUT_DIR=${OUTPUT_DIR:-./live_analysis_output}
+      - DATA_SOURCE=${DATA_SOURCE:-mql}
+    ports:
+      - "${PORT:-8080}:8080"
+    depends_on:
+      aerospike:
+        condition: service_healthy
+    networks:
+      - trading-network
+    volumes:
+      - ./live_analysis_output:/app/live_analysis_output
+      - ./data:/app/data
+    restart: unless-stopped
+    command: >
+      sh -c "
+        echo 'Waiting for Aerospike to be ready...' &&
+        sleep 5 &&
+        node src/index.js ${SYMBOL:-XAUUSD} ${OUTPUT_DIR:-./live_analysis_output} ${DATA_SOURCE:-mql}
+      "
+
+volumes:
+  aerospike-data:
+    driver: local
+  aerospike-logs:
+    driver: local
+
+networks:
+  trading-network:
+    driver: bridge
+
