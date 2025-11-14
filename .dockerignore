@@ -10,5 +10,4 @@ logs/
 .gitignore
 README.md
 docker-compose.yml
-aerospike.conf
 

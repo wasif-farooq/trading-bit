@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   aerospike:
-    image: aerospike/aerospike-server:latest
+    build:
+      context: .
+      dockerfile: aerospike/Dockerfile
     container_name: exness-aerospike
     ports:
       - "3000:3000"  # Client port
@@ -12,7 +14,6 @@ services:
     volumes:
       - aerospike-data:/opt/aerospike/data
       - aerospike-logs:/opt/aerospike/logs
-      - ./aerospike.conf:/etc/aerospike/aerospike.conf
     networks:
       - trading-network
     healthcheck:

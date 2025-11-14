@@ -3,10 +3,12 @@ const aerospike = require('aerospike');
 const logger = require('../utils/logger');
 
 class CandleRepository {
-	constructor(symbol, namespace = 'candles') {
+	constructor(symbol, namespace = 'candles', timeframe = '1s') {
 		this.symbol = symbol;
 		this.namespace = namespace;
-		this.set = `${symbol}_candles`;
+		this.timeframe = timeframe;
+		// For 1s candles: XAUUSD_candles, for multi-timeframe: XAUUSD_15s, XAUUSD_1m, etc.
+		this.set = timeframe === '1s' ? `${symbol}_candles` : `${symbol}_${timeframe}`;
 		this.batchSize = 100;
 		this.pendingWrites = [];
 		this.flushInterval = 5000;
@@ -37,30 +39,57 @@ class CandleRepository {
 		const client = getClient();
 
 		return new Promise((resolve, reject) => {
-			const key = aerospike.key(this.namespace, this.set, candle.timestamp);
+			// Validate candle data
+			if (!candle || !candle.timestamp) {
+				reject(new Error('Invalid candle: missing timestamp'));
+				return;
+			}
+
+			// Ensure all numeric values are valid
+			const open = Number(candle.open);
+			const high = Number(candle.high);
+			const low = Number(candle.low);
+			const close = Number(candle.close);
+			const volume = Number(candle.volume || 0);
+
+			if (isNaN(open) || isNaN(high) || isNaN(low) || isNaN(close) || isNaN(volume)) {
+				reject(new Error(`Invalid candle: NaN values - open=${open}, high=${high}, low=${low}, close=${close}, volume=${volume}`));
+				return;
+			}
+
+			// Use numeric timestamp as key (milliseconds since epoch)
+			// This avoids potential issues with string keys containing special characters
+			const timestampMs = new Date(candle.timestamp).getTime();
+			const key = new aerospike.Key(this.namespace, this.set, timestampMs);
 			const bins = {
-				symbol: this.symbol,
-				timestamp: candle.timestamp,
-				open: candle.open,
-				high: candle.high,
-				low: candle.low,
-				close: candle.close,
-				volume: candle.volume,
-				originalTimestamp: candle.originalTimestamp
+				symbol: String(this.symbol),
+				timestamp: String(candle.timestamp),
+				timeframe: String(this.timeframe), // Add timeframe for identification
+				open: open,
+				high: high,
+				low: low,
+				close: close,
+				volume: volume,
+				origTs: String(candle.originalTimestamp || candle.timestamp) // Shortened to fit 16 char limit
 			};
 
+			// Use metadata with TTL, no custom policy (use defaults)
 			const metadata = {
-				ttl: 7 * 24 * 60 * 60
+				ttl: 7 * 24 * 60 * 60 // 7 days in seconds
 			};
 
-			const policy = {
-				exists: aerospike.policy.exists.IGNORE
-			};
-
-			client.put(key, bins, metadata, policy, (error) => {
+			// Try without policy parameter - use default policy
+			client.put(key, bins, metadata, (error) => {
 				if (error) {
+					logger.error(`Aerospike put error: ${error.message}`, { 
+						namespace: this.namespace, 
+						set: this.set, 
+						key: candle.timestamp,
+						errorCode: error.code 
+					});
 					reject(error);
 				} else {
+					logger.debug(`✅ Successfully stored candle: ${candle.timestamp}`);
 					resolve();
 				}
 			});
@@ -75,27 +104,30 @@ class CandleRepository {
 
 		const writePromises = batch.map((candle) => {
 			return new Promise((resolve, reject) => {
-				const key = aerospike.key(this.namespace, this.set, candle.timestamp);
+				// Use numeric timestamp as key (milliseconds since epoch)
+				const timestampMs = new Date(candle.timestamp).getTime();
+				const key = new aerospike.Key(this.namespace, this.set, timestampMs);
 				const bins = {
-					symbol: this.symbol,
-					timestamp: candle.timestamp,
-					open: candle.open,
-					high: candle.high,
-					low: candle.low,
-					close: candle.close,
-					volume: candle.volume,
-					originalTimestamp: candle.originalTimestamp
+					symbol: String(this.symbol),
+					timestamp: String(candle.timestamp),
+					timeframe: String(this.timeframe), // Add timeframe for identification
+					open: Number(candle.open),
+					high: Number(candle.high),
+					low: Number(candle.low),
+					close: Number(candle.close),
+					volume: Number(candle.volume || 0),
+					origTs: String(candle.originalTimestamp || candle.timestamp) // Shortened to fit 16 char limit
 				};
 
 				const metadata = {
-					ttl: 7 * 24 * 60 * 60
+					ttl: 7 * 24 * 60 * 60 // 7 days in seconds
 				};
 
-				const policy = {
+				const writePolicy = {
 					exists: aerospike.policy.exists.IGNORE
 				};
 
-				client.put(key, bins, metadata, policy, (error) => {
+				client.put(key, bins, metadata, writePolicy, (error) => {
 					if (error) {
 						reject(error);
 					} else {
@@ -135,12 +167,13 @@ class CandleRepository {
 				if (timestamp >= fromTimestamp && timestamp <= toTimestamp) {
 					results.push({
 						timestamp: record.bins.timestamp,
+						timeframe: record.bins.timeframe || this.timeframe, // Include timeframe
 						open: record.bins.open,
 						high: record.bins.high,
 						low: record.bins.low,
 						close: record.bins.close,
 						volume: record.bins.volume,
-						originalTimestamp: record.bins.originalTimestamp
+						originalTimestamp: record.bins.origTs || record.bins.timestamp // Map back from shortened name
 					});
 
 					if (results.length >= limit) {

@@ -15,6 +15,8 @@ class SwingLevelRepository {
 		this.fallbackToFile = fallbackToFile;
 		this.cache = new Map();
 		this.isLoaded = false;
+		// Price precision multiplier: multiply by 10000 to convert float to int (preserves 0.0001 precision)
+		this.PRICE_MULTIPLIER = 10000;
 	}
 
 	async ensureLoaded() {
@@ -118,6 +120,10 @@ class SwingLevelRepository {
 	}
 
 	async persistLevels(symbol, levels) {
+		if (!levels || levels.length === 0) {
+			return;
+		}
+
 		const client = getClient();
 		const set = 'levels';
 
@@ -125,11 +131,21 @@ class SwingLevelRepository {
 			return new Promise((resolve, reject) => {
 				const levelKey = this.levelKey(level);
 				const price = level.commonPointPrice || level.price || 0;
-				const key = aerospike.key(this.namespace, set, `${symbol}_${levelKey}`);
+				
+				if (!price || price === 0) {
+					logger.warn(`Skipping level with invalid price: ${JSON.stringify(level)}`);
+					resolve();
+					return;
+				}
+
+				// Convert price to integer for Aerospike range queries (multiply by precision factor)
+				const priceInt = Math.round(price * this.PRICE_MULTIPLIER);
+				const key = new aerospike.Key(this.namespace, set, `${symbol}_${levelKey}`);
 				const bins = {
 					symbol: symbol,
 					levelKey: levelKey,
-					price: price,
+					price: priceInt, // Store as integer
+					priceFloat: price, // Also store original float for reference
 					levelData: JSON.stringify(level)
 				};
 
@@ -137,13 +153,18 @@ class SwingLevelRepository {
 					ttl: 0
 				};
 
+				// Use IGNORE policy to allow creating new records or updating existing ones
+				// This prevents "Record does not exist" errors when writing new levels
 				const policy = {
-					exists: aerospike.policy.exists.REPLACE
+					exists: aerospike.policy.exists.IGNORE
 				};
 
 				client.put(key, bins, metadata, policy, (error) => {
 					if (error) {
-						reject(error);
+						// Log error but don't fail the entire operation
+						logger.warn(`Error persisting swing level ${levelKey} to Aerospike: ${error.message}`);
+						// Resolve instead of reject to allow other levels to be persisted
+						resolve();
 					} else {
 						resolve();
 					}
@@ -151,7 +172,13 @@ class SwingLevelRepository {
 			});
 		});
 
-		await Promise.all(writePromises);
+		try {
+			await Promise.all(writePromises);
+			logger.debug(`Successfully persisted ${levels.length} swing levels for ${symbol}`);
+		} catch (error) {
+			logger.error(`Error in persistLevels batch operation: ${error.message}`);
+			// Don't throw - allow operation to continue even if some levels fail
+		}
 	}
 
 	async syncLevels(symbol, levels) {
@@ -184,7 +211,7 @@ class SwingLevelRepository {
 
 		const deletePromises = levelKeys.map((levelKey) => {
 			return new Promise((resolve, reject) => {
-				const key = aerospike.key(this.namespace, set, `${symbol}_${levelKey}`);
+				const key = new aerospike.Key(this.namespace, set, `${symbol}_${levelKey}`);
 				client.remove(key, (error) => {
 					if (error && error.code !== aerospike.status.AEROSPIKE_ERR_RECORD_NOT_FOUND) {
 						reject(error);
@@ -261,20 +288,34 @@ class SwingLevelRepository {
 	}
 
 	async getLevelsInPriceRange(symbol, currentPrice, tolerance = 0.002) {
+		// If we have cached levels for this symbol, check cache first
+		// If no cached levels exist, skip Aerospike query to avoid "unrecognized set" warnings
+		const cachedLevels = this.getLevels(symbol);
+		if (!cachedLevels || cachedLevels.length === 0) {
+			// No levels stored yet, return empty array without querying
+			logger.debug(`No cached levels for ${symbol}, skipping Aerospike query`);
+			return [];
+		}
+
 		const client = getClient();
 		const set = 'levels';
 		const minPrice = currentPrice * (1 - tolerance);
 		const maxPrice = currentPrice * (1 + tolerance);
+		
+		// Convert to integers for Aerospike range query - use parseInt to ensure true integers
+		const minPriceInt = parseInt(Math.floor(minPrice * this.PRICE_MULTIPLIER), 10);
+		const maxPriceInt = parseInt(Math.ceil(maxPrice * this.PRICE_MULTIPLIER), 10);
 
 		const results = [];
 
 		try {
 			const query = client.query(this.namespace, set);
+			// Ensure values are integers - Aerospike requires strict integers for range queries
+			// Note: filter.range signature is (binName, min, max) - do NOT include indexType
 			const filter = aerospike.filter.range(
 				'price',
-				aerospike.indexType.NUMERIC,
-				minPrice,
-				maxPrice
+				minPriceInt,
+				maxPriceInt
 			);
 			query.where(filter);
 
@@ -301,12 +342,26 @@ class SwingLevelRepository {
 				});
 
 				stream.on('error', (error) => {
-					reject(error);
+					// Handle "unrecognized set" warnings gracefully
+					if (error.code === aerospike.status.AEROSPIKE_ERR_INDEX_NOT_FOUND || 
+					    error.message && error.message.includes('unrecognized set')) {
+						logger.debug('Set or index not found yet, returning empty results');
+						resolve(); // Resolve instead of reject to return empty array
+					} else {
+						reject(error);
+					}
 				});
 			});
 		} catch (error) {
+			// If index doesn't exist yet (no data), return empty array instead of erroring
+			if (error.code === aerospike.status.AEROSPIKE_ERR_INDEX_NOT_FOUND || 
+			    (error.message && error.message.includes('unrecognized set'))) {
+				logger.debug('Price index or set not found yet (no swing levels stored), returning empty results');
+				return [];
+			}
 			logger.error('Error querying levels by price range:', error);
-			throw error;
+			// Return empty array instead of throwing to prevent crashes
+			return [];
 		}
 
 		return results;

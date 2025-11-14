@@ -81,7 +81,7 @@ pushd "${PROJECT_ROOT}" >/dev/null
 case "${COMMAND}" in
 	up)
 		echo "Starting services using env file '${ENV_FILE_RELATIVE}'..."
-		compose_cmd "${ENV_FILE_RELATIVE}" up -d
+		compose_cmd "${ENV_FILE_RELATIVE}" up -d --build
 		;;
 	down)
 		echo "Stopping services using env file '${ENV_FILE_RELATIVE}'..."

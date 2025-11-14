@@ -41,15 +41,26 @@ class SignalService {
 		const currentPrice = currentCandle.close;
 		const currentTime = new Date(currentCandle.timestamp);
 
+		logger.info(`🔍 SignalService.checkForSignals: Checking ${commonPoints.length} levels against price ${currentPrice.toFixed(2)}, tolerance: ${CONFIG.signalRevisitTolerance}`);
+
 		for (const commonPoint of commonPoints) {
 			const commonPointTime = new Date(commonPoint.originalTimestamp || commonPoint.timestamp);
 
-			if (commonPointTime >= currentTime) continue;
+			// Skip if swing point is in the future
+			if (commonPointTime >= currentTime) {
+				logger.info(`  ⏭️  Skipping ${commonPoint.type} @ ${commonPoint.price.toFixed(2)}: future timestamp`);
+				continue;
+			}
 
 			const levelKey = this.getLevelKey(commonPoint);
-			if (this.processedLevels.has(levelKey)) continue;
+			if (this.processedLevels.has(levelKey)) {
+				logger.info(`  ⏭️  Skipping ${commonPoint.type} @ ${commonPoint.price.toFixed(2)}: already processed`);
+				continue;
+			}
 
 			const priceDiff = Math.abs(currentPrice - commonPoint.price) / commonPoint.price;
+
+			logger.info(`  📊 Checking ${commonPoint.type} @ ${commonPoint.price.toFixed(2)}: priceDiff=${(priceDiff * 100).toFixed(3)}%, tolerance=${(CONFIG.signalRevisitTolerance * 100).toFixed(3)}%`);
 
 			if (priceDiff <= CONFIG.signalRevisitTolerance) {
 				const signal = this.createSignal(commonPoint, currentCandle, 'REVISIT');
@@ -62,13 +73,18 @@ class SignalService {
 					signalType: signal.signalType
 				});
 
-				logger.info(`🎯 LIVE SIGNAL DETECTED: ${signal.signalType} | ${commonPoint.type} @ ${commonPoint.price.toFixed(4)} | Current: ${currentPrice.toFixed(4)}`);
+				logger.info(`🎯 LIVE SIGNAL DETECTED: ${signal.signalType} | ${commonPoint.type} @ ${commonPoint.price.toFixed(4)} | Current: ${currentPrice.toFixed(4)} | Diff: ${(priceDiff * 100).toFixed(3)}%`);
+			} else {
+				logger.info(`  ❌ ${commonPoint.type} @ ${commonPoint.price.toFixed(2)}: price diff ${(priceDiff * 100).toFixed(3)}% exceeds tolerance ${(CONFIG.signalRevisitTolerance * 100).toFixed(3)}%`);
 			}
 		}
 
 		if (newSignals.length > 0) {
 			this.signals.push(...newSignals);
 			await this.saveSignalsToCSV(newSignals);
+			logger.info(`✅ Generated ${newSignals.length} new signal(s), total signals: ${this.signals.length}`);
+		} else {
+			logger.info(`ℹ️  No new signals generated from ${commonPoints.length} levels`);
 		}
 
 		return newSignals;

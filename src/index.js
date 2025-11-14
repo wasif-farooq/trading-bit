@@ -24,7 +24,6 @@ async function main() {
 	let apiServer;
 	let aerospikeClient;
 	let swingLevelRepository;
-	let candleRepository;
 	let configRepository;
 
 	let dataSource;
@@ -87,12 +86,21 @@ async function main() {
 		}
 	}
 
-	candleRepository = aerospikeClient ? new CandleRepository(symbol, 'candles') : null;
+	// Create candle repositories for 1s and all multi-timeframes
+	const candleRepository = aerospikeClient ? new CandleRepository(symbol, 'candles', '1s') : null;
+	const multiTimeframeRepositories = aerospikeClient ? {
+		'15s': new CandleRepository(symbol, 'candles', '15s'),
+		'1m': new CandleRepository(symbol, 'candles', '1m'),
+		'3m': new CandleRepository(symbol, 'candles', '3m'),
+		'5m': new CandleRepository(symbol, 'candles', '5m')
+	} : null;
+	
 	configRepository = new ConfigRepository();
 
 	const analyzerService = new AnalyzerService(symbol, outputDir, {
 		swingLevelRepository,
-		candleRepository
+		candleRepository,
+		multiTimeframeRepositories
 	});
 
 	tradingService = new TradingService({

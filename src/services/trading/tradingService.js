@@ -52,6 +52,7 @@ class TradingService extends EventEmitter {
 
 	attachDataSourceListeners() {
 		this.dataSource.on('connected', async () => {
+			logger.info('✅ TradingService: Data source connected');
 			this.emit('data_source_connected');
 			if (this.isMqlDataSource()) {
 				try {
@@ -68,6 +69,7 @@ class TradingService extends EventEmitter {
 		});
 
 		this.dataSource.on('tick', (tick) => {
+			logger.info(`📊 TradingService received tick: ${tick.symbol} bid=${tick.bid} ask=${tick.ask}`);
 			this.handleTick(tick);
 		});
 
@@ -106,6 +108,7 @@ class TradingService extends EventEmitter {
 	async handleTick(tick) {
 		try {
 			if (!tick || tick.symbol !== this.symbol) {
+				logger.info(`⏭️  Skipping tick: symbol mismatch (${tick?.symbol} vs ${this.symbol})`);
 				return;
 			}
 
@@ -115,6 +118,7 @@ class TradingService extends EventEmitter {
 			const volume = Number.parseFloat(tick.volume || 0);
 
 			if (Number.isNaN(bid) || Number.isNaN(ask)) {
+				logger.warn(`⚠️  Invalid tick data: bid=${tick.bid}, ask=${tick.ask}`);
 				return;
 			}
 
@@ -133,8 +137,10 @@ class TradingService extends EventEmitter {
 					break;
 			}
 
+			logger.info(`💰 Processing tick: price=${price}, volume=${volume}`);
 			await this.analyzer.addTradeData(timestamp, price, volume);
 		} catch (error) {
+			logger.error('❌ Error handling tick:', error);
 			this.emit('error', error);
 		}
 	}
