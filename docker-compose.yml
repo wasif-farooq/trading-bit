@@ -12,9 +12,7 @@ services:
     volumes:
       - aerospike-data:/opt/aerospike/data
       - aerospike-logs:/opt/aerospike/logs
-      - ./aerospike.conf:/etc/aerospike/aerospike.conf:ro
-    command: |
-      /entrypoint.sh asd --config-file /etc/aerospike/aerospike.conf
+      - ./aerospike.conf:/etc/aerospike/aerospike.conf
     networks:
       - trading-network
     healthcheck:

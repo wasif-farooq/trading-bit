@@ -15,10 +15,6 @@ const buildAerospikeConfig = () => {
 		],
 		log: {
 			level: aerospike.log.INFO
-		},
-		policies: {
-			timeout: 1000,
-			retry: aerospike.policy.retry.EXPONENTIAL
 		}
 	};
 

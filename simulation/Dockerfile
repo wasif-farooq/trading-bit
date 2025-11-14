@@ -1,10 +1,10 @@
-FROM node:18-alpine
+FROM node:18
 
 WORKDIR /app
 
 # Copy root package files (simulation uses root dependencies)
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci && npm prune --omit=dev
 
 # Copy simulation files
 COPY simulation/ ./

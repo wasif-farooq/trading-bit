@@ -7,6 +7,16 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMPOSE_FILE="${PROJECT_ROOT}/docker-compose.yml"
 TEMPLATE_FILE="${PROJECT_ROOT}/env.template"
 
+if command -v docker-compose >/dev/null 2>&1; then
+	DOCKER_COMPOSE_CMD=("docker-compose")
+elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+	DOCKER_COMPOSE_CMD=("docker" "compose")
+else
+	echo "Error: docker-compose (v1) or docker compose (v2) not found in PATH."
+	echo "Please install Docker Compose or add it to your PATH."
+	exit 1
+fi
+
 usage() {
 	cat <<EOF
 Usage: $(basename "$0") <command> [env-file]
@@ -15,11 +25,13 @@ Commands:
   up [env]       Start docker-compose services (default env: .env)
   down [env]     Stop docker-compose services
   logs [env]     Tail logs for running services
+  ps [env]       Show status of docker-compose services
 
 Examples:
   $(basename "$0") up
   $(basename "$0") up .env.simulation
   $(basename "$0") down
+  $(basename "$0") ps
 EOF
 	exit 1
 }
@@ -41,10 +53,10 @@ ensure_env_file() {
 	fi
 }
 
-run_compose() {
-	local cmd="$1"
-	local env_file="$2"
-	docker-compose --env-file "${env_file}" -f "${COMPOSE_FILE}" "${cmd}"
+compose_cmd() {
+	local env_file="$1"
+	shift
+	"${DOCKER_COMPOSE_CMD[@]}" --env-file "${env_file}" "$@"
 }
 
 COMMAND="${1:-}"
@@ -56,7 +68,7 @@ if [[ -z "${COMMAND}" ]]; then
 fi
 
 case "${COMMAND}" in
-	up|down|logs)
+	up|down|logs|ps)
 		ensure_env_file "${ENV_FILE}"
 		;;
 	*)
@@ -69,15 +81,18 @@ pushd "${PROJECT_ROOT}" >/dev/null
 case "${COMMAND}" in
 	up)
 		echo "Starting services using env file '${ENV_FILE_RELATIVE}'..."
-		docker-compose --env-file "${ENV_FILE_RELATIVE}" up -d
+		compose_cmd "${ENV_FILE_RELATIVE}" up -d
 		;;
 	down)
 		echo "Stopping services using env file '${ENV_FILE_RELATIVE}'..."
-		docker-compose --env-file "${ENV_FILE_RELATIVE}" down
+		compose_cmd "${ENV_FILE_RELATIVE}" down
 		;;
 	logs)
 		echo "Tailing logs using env file '${ENV_FILE_RELATIVE}'..."
-		docker-compose --env-file "${ENV_FILE_RELATIVE}" logs -f
+		compose_cmd "${ENV_FILE_RELATIVE}" logs -f
+		;;
+	ps)
+		compose_cmd "${ENV_FILE_RELATIVE}" ps
 		;;
 esac
 
