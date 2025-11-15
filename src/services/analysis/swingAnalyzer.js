@@ -6,145 +6,170 @@ class SwingAnalyzer {
 		this.timeframe = timeframe;
 		this.priceData = [];
 		this.swingPoints = [];
+		this.swingHighs = [];
+		this.swingLows = [];
 		this.swingLeftBars = CONFIG.swingLeftBars || 5;
 		this.swingRightBars = CONFIG.swingRightBars || 5;
-		this.minSwingStrength = CONFIG.minSwingStrength || 0.001;
+		this.minSwingStrength = CONFIG.minSwingStrength || 0.1;
 	}
 
 	addPriceData(timestamp, open, high, low, close, volume, originalTimestamp) {
 		this.priceData.push({
 			timestamp,
-			open,
-			high,
-			low,
-			close,
-			volume,
-			originalTimestamp
+			open: parseFloat(open),
+			high: parseFloat(high),
+			low: parseFloat(low),
+			close: parseFloat(close),
+			volume: parseFloat(volume),
+			index: this.priceData.length,
+			originalTimestamp: originalTimestamp || timestamp
 		});
 	}
 
-	detectSwingPoints() {
-		this.swingPoints = [];
+	calculateSwingStrength(index, type) {
+		const current = this.priceData[index];
+		let totalMovement = 0;
+		let count = 0;
+
+		// Calculate average movement of surrounding bars (20 bars: index-10 to index+10)
+		for (let i = Math.max(0, index - 10); i < Math.min(this.priceData.length, index + 10); i++) {
+			if (i !== index && i > 0) {
+				totalMovement += Math.abs(this.priceData[i].close - this.priceData[i - 1].close);
+				count++;
+			}
+		}
+
+		const avgMovement = totalMovement / count || 0.01;
 		
+		// Calculate swing movement
+		const swingMovement = type === 'high' ?
+			current.high - Math.min(current.low, this.priceData[index - 1]?.low || current.low) :
+			Math.max(current.high, this.priceData[index - 1]?.high || current.high) - current.low;
+
+		return swingMovement / avgMovement;
+	}
+
+	detectSwingPoints() {
+		this.swingHighs = [];
+		this.swingLows = [];
+		this.swingPoints = [];
+
 		if (this.priceData.length < this.swingLeftBars + this.swingRightBars + 1) {
 			logger.info(`[${this.timeframe}] Not enough data for swing detection: ${this.priceData.length} bars (need ${this.swingLeftBars + this.swingRightBars + 1})`);
-			return; // Not enough data
+			return;
 		}
-		
+
 		logger.info(`[${this.timeframe}] Detecting swing points from ${this.priceData.length} bars (left: ${this.swingLeftBars}, right: ${this.swingRightBars}, minStrength: ${this.minSwingStrength})`);
 
 		// Detect swing highs and lows
 		for (let i = this.swingLeftBars; i < this.priceData.length - this.swingRightBars; i++) {
-			const currentBar = this.priceData[i];
-			
-			// Check for swing high
+			const current = this.priceData[i];
 			let isSwingHigh = true;
-			let maxHigh = currentBar.high;
-			
-			// Check left bars
-			for (let j = i - this.swingLeftBars; j < i; j++) {
-				if (this.priceData[j].high >= currentBar.high) {
-					isSwingHigh = false;
-					break;
-				}
-				maxHigh = Math.max(maxHigh, this.priceData[j].high);
-			}
-			
-			// Check right bars
-			if (isSwingHigh) {
-				for (let j = i + 1; j <= i + this.swingRightBars; j++) {
-					if (this.priceData[j].high >= currentBar.high) {
-						isSwingHigh = false;
-						break;
-					}
-					maxHigh = Math.max(maxHigh, this.priceData[j].high);
-				}
-			}
-			
-			// Calculate swing strength for high
-			if (isSwingHigh) {
-				// Calculate average of surrounding bars for strength comparison
-				const surroundingBars = [
-					...this.priceData.slice(i - this.swingLeftBars, i),
-					...this.priceData.slice(i + 1, i + this.swingRightBars + 1)
-				];
-				const avgHigh = surroundingBars.reduce((sum, bar) => sum + bar.high, 0) / surroundingBars.length;
-				const strength = (currentBar.high - avgHigh) / avgHigh;
-				
-				// Use absolute value for strength check (minSwingStrength is a percentage)
-				if (Math.abs(strength) >= this.minSwingStrength) {
-					const swingPoint = {
-						type: 'SWING_HIGH',
-						price: currentBar.high,
-						timestamp: currentBar.timestamp,
-						originalTimestamp: currentBar.originalTimestamp,
-						timeframe: this.timeframe,
-						strength: Math.abs(strength),
-						qualityScore: Math.abs(strength) * 100,
-						confirmationCount: 1
-					};
-					this.swingPoints.push(swingPoint);
-					logger.info(`[${this.timeframe}] Found SWING_HIGH at ${currentBar.high.toFixed(2)} (strength: ${(Math.abs(strength) * 100).toFixed(3)}%)`);
-				}
-			}
-			
-			// Check for swing low
 			let isSwingLow = true;
-			let minLow = currentBar.low;
-			
+
 			// Check left bars
-			for (let j = i - this.swingLeftBars; j < i; j++) {
-				if (this.priceData[j].low <= currentBar.low) {
-					isSwingLow = false;
-					break;
-				}
-				minLow = Math.min(minLow, this.priceData[j].low);
+			for (let j = 1; j <= this.swingLeftBars; j++) {
+				if (current.high <= this.priceData[i - j].high) isSwingHigh = false;
+				if (current.low >= this.priceData[i - j].low) isSwingLow = false;
 			}
-			
+
 			// Check right bars
-			if (isSwingLow) {
-				for (let j = i + 1; j <= i + this.swingRightBars; j++) {
-					if (this.priceData[j].low <= currentBar.low) {
-						isSwingLow = false;
-						break;
-					}
-					minLow = Math.min(minLow, this.priceData[j].low);
+			for (let j = 1; j <= this.swingRightBars; j++) {
+				if (current.high <= this.priceData[i + j].high) isSwingHigh = false;
+				if (current.low >= this.priceData[i + j].low) isSwingLow = false;
+			}
+
+			if (isSwingHigh) {
+				const strength = this.calculateSwingStrength(i, 'high');
+				if (strength >= this.minSwingStrength) {
+					this.swingHighs.push({
+						timestamp: current.timestamp,
+						price: current.high,
+						type: 'SWING_HIGH',
+						strength: strength,
+						index: i,
+						timeframe: this.timeframe,
+						bar: {
+							open: current.open,
+							high: current.high,
+							low: current.low,
+							close: current.close,
+							volume: current.volume,
+							originalTimestamp: current.originalTimestamp
+						},
+						barRange: current.high - current.low,
+						bodySize: Math.abs(current.close - current.open),
+						isBullish: current.close > current.open
+					});
 				}
 			}
-			
-			// Calculate swing strength for low
+
 			if (isSwingLow) {
-				// Calculate average of surrounding bars for strength comparison
-				const surroundingBars = [
-					...this.priceData.slice(i - this.swingLeftBars, i),
-					...this.priceData.slice(i + 1, i + this.swingRightBars + 1)
-				];
-				const avgLow = surroundingBars.reduce((sum, bar) => sum + bar.low, 0) / surroundingBars.length;
-				const strength = (avgLow - currentBar.low) / avgLow;
-				
-				// Use absolute value for strength check (minSwingStrength is a percentage)
-				if (Math.abs(strength) >= this.minSwingStrength) {
-					const swingPoint = {
+				const strength = this.calculateSwingStrength(i, 'low');
+				if (strength >= this.minSwingStrength) {
+					this.swingLows.push({
+						timestamp: current.timestamp,
+						price: current.low,
 						type: 'SWING_LOW',
-						price: currentBar.low,
-						timestamp: currentBar.timestamp,
-						originalTimestamp: currentBar.originalTimestamp,
+						strength: strength,
+						index: i,
 						timeframe: this.timeframe,
-						strength: Math.abs(strength),
-						qualityScore: Math.abs(strength) * 100,
-						confirmationCount: 1
-					};
-					this.swingPoints.push(swingPoint);
-					logger.info(`[${this.timeframe}] Found SWING_LOW at ${currentBar.low.toFixed(2)} (strength: ${(Math.abs(strength) * 100).toFixed(3)}%)`);
+						bar: {
+							open: current.open,
+							high: current.high,
+							low: current.low,
+							close: current.close,
+							volume: current.volume,
+							originalTimestamp: current.originalTimestamp
+						},
+						barRange: current.high - current.low,
+						bodySize: Math.abs(current.close - current.open),
+						isBullish: current.close > current.open
+					});
 				}
 			}
 		}
-		
+
+		// Filter consecutive swings
+		this.filterConsecutiveSwings();
+
+		// Combine swing highs and lows into swingPoints array
+		this.swingPoints = [...this.swingHighs, ...this.swingLows];
+
+		logger.info(`[${this.timeframe}] Found ${this.swingHighs.length} swing highs and ${this.swingLows.length} swing lows`);
 		logger.info(`[${this.timeframe}] Swing detection complete: found ${this.swingPoints.length} swing points`);
+	}
+
+	filterConsecutiveSwings() {
+		this.swingHighs = this.swingHighs.filter((swing, index, array) => {
+			if (index === 0) return true;
+			const prevSwing = array[index - 1];
+			return swing.index - prevSwing.index > this.swingLeftBars;
+		});
+
+		this.swingLows = this.swingLows.filter((swing, index, array) => {
+			if (index === 0) return true;
+			const prevSwing = array[index - 1];
+			return swing.index - prevSwing.index > this.swingLeftBars;
+		});
 	}
 
 	getSwingPoints() {
 		return this.swingPoints;
+	}
+
+	getAnalysisResults() {
+		return {
+			summary: {
+				timeframe: this.timeframe,
+				totalSwingPoints: this.swingHighs.length + this.swingLows.length,
+				totalSwingHighs: this.swingHighs.length,
+				totalSwingLows: this.swingLows.length,
+				dataPoints: this.priceData.length
+			},
+			swingHighs: this.swingHighs,
+			swingLows: this.swingLows
+		};
 	}
 }
 

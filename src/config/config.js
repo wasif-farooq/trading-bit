@@ -3,7 +3,7 @@ const env = require('./env');
 const CONFIG = {
 	swingLeftBars: 5,
 	swingRightBars: 5,
-	minSwingStrength: 0.001, // 0.1% - more appropriate for XAUUSD price movements
+	minSwingStrength: 0.1, // 10% threshold - matches proven backtest algorithm
 	commonPointTolerance: 0.001,
 	openCloseTolerance: 0.002,
 	volumeSimilarityThreshold: 0.3,
